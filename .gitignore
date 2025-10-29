@@ -1,0 +1,29 @@
+# Python & environment
+venv/
+env/
+__pycache__/
+*.pyc
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Logs and outputs
+logs/
+*.log
+
+# Data & models
+artifacts/
+*.h5
+*.npy
+*.pth
+*.pt
+*.pkl
+*.csv
+*.tsv
+
+# System files
+.DS_Store
+Thumbs.db
+
+# VSCode settings
+.vscode/
