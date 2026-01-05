@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: three_joint_arm_rl
+Version: 0.1.0
+Summary: DQN training for a 3-joint robotic arm with visualization and Gymnasium environment
+Author: Your Name
+License: MIT
+Requires-Dist: numpy
+Requires-Dist: torch
+Requires-Dist: matplotlib
+Requires-Dist: gymnasium
+Requires-Dist: pandas
+Dynamic: author
+Dynamic: license
+Dynamic: requires-dist
+Dynamic: summary
