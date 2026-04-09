@@ -1,25 +1,38 @@
-# src/components/reward_functions.py
-
 import numpy as np
 
-def shaped_reward(end_effector_pos, target_pos, previous_distance=None, threshold=0.1, bonus=10.0, penalty=1.0):
-    """
-    Compute a shaped reward:
-    - Base: negative distance to target
-    - +bonus for reaching the target
-    - +small improvement bonus if getting closer
-    - -penalty if getting farther away
-    """
-    distance = np.linalg.norm(end_effector_pos - target_pos)
+# HARD success (final goal)
+HARD_THRESHOLD = 0.35
+HARD_SUCCESS_BONUS = 30.0
+
+# SOFT success (curriculum trigger)
+SOFT_THRESHOLD = 0.55
+SOFT_SUCCESS_BONUS = 8.0
+
+STEP_PENALTY = 0.01
+
+def shaped_reward(ee, target, difficulty, previous_distance=None):
+    distance = np.linalg.norm(ee - target)
+
     reward = -distance
-    done = False
 
+    # Progress shaping
     if previous_distance is not None:
-        delta = previous_distance - distance
-        reward += 0.1 * delta if delta > 0 else -penalty * abs(delta)
+        reward += 0.5 * (previous_distance - distance)
 
-    if distance < threshold:
-        reward += bonus
+    reward -= STEP_PENALTY
+
+    done = False
+    success = False
+
+    # 🔹 HARD success (true success)
+    if distance < HARD_THRESHOLD:
+        reward += HARD_SUCCESS_BONUS
         done = True
+        success = True
 
-    return reward, done, distance
+    # 🔹 SOFT success (curriculum)
+    elif distance < SOFT_THRESHOLD:
+        reward += SOFT_SUCCESS_BONUS
+        done = True   # end episode early
+
+    return reward, done, distance, success

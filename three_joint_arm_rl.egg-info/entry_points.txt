@@ -1,3 +1,0 @@
-[console_scripts]
-evaluate-arm = src.evaluate:evaluate
-train-arm = src.train:train

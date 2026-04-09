@@ -1,89 +1,43 @@
-# --- train.py (with Curriculum Learning Advancement) ---
-
-import random
-import numpy as np
-import pandas as pd
-import torch
-import torch.nn as nn
-from collections import deque
-
-from src.config import config
-from src.logger import get_logger
+import os
+os.makedirs("artifacts", exist_ok=True)
+import yaml, csv, os, torch
 from src.components.environment import ThreeJointArmEnv
 from src.components.agent import DQNAgent
-from src.components.reward_functions import shaped_reward
 
-logger = get_logger("train")
+cfg = yaml.safe_load(open("configs/dqn.yaml"))
+env = ThreeJointArmEnv()
 
-def train():
-    env = ThreeJointArmEnv()
-    state_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.n
-    agent = DQNAgent(state_dim, action_dim, config)
+agent = DQNAgent(env.observation_space.shape[0], env.action_space.n, cfg)
 
-    total_rewards = []
-    moving_avg_rewards = []
-    eps_history = []
-    best_reward = float('-inf')
-    reward_window = deque(maxlen=config["moving_avg_window"])
+os.makedirs("data", exist_ok=True)
+log = csv.writer(open("data/training_log.csv","w",newline=""))
+log.writerow(["episode","total_reward","best_distance","epsilon"])
 
-    for episode in range(1, config["num_episodes"] + 1):
-        # === Curriculum Difficulty Advancement ===
-        if episode < 700:
-            env.difficulty = "easy"
-        elif episode < 1400:
-            env.difficulty = "medium"
-        else:
-            env.difficulty = "hard"
+epsilon = cfg["epsilon_start"]
 
-        state, _ = env.reset()
-        total_reward = 0
-        epsilon = config["epsilon_end"] + (config["epsilon_start"] - config["epsilon_end"]) * \
-            np.exp(-episode / config["epsilon_decay_steps"])
+for ep in range(1, cfg["episodes"]+1):
+    s,_ = env.reset()
+    total, best = 0, 1e9
 
-        for _ in range(config["max_steps_per_episode"]):
-            action = agent.select_action(state, epsilon)
-            next_state, _, terminated, truncated, info = env.step(action)
+    for _ in range(cfg["max_steps"]):
+        a = agent.select_action(s, epsilon)
+        ns,r,d,t,info = env.step(a)
+        agent.buffer.push((s,a,r,ns,d))
+        total += r
+        best = min(best, info["distance"])
+        s = ns
+        if d or t: break
 
-            reward, done, distance = shaped_reward(next_state[:3], next_state[3:],
-                                                   threshold=config["target_threshold"],
-                                                   bonus=config["target_bonus"])
-            total_reward += reward
+        if len(agent.buffer.buffer) > cfg["batch_size"]:
+            batch, idx, w = agent.buffer.sample(cfg["batch_size"])
+            td = agent.train_step(batch, idx, w)
+            agent.buffer.update_priorities(idx, td+1e-6)
 
-            agent.remember(state, action, reward, next_state, done)
-            state = next_state
+    epsilon = max(cfg["epsilon_min"], epsilon*cfg["epsilon_decay"])
+    log.writerow([ep,total,best,epsilon])
 
-            if len(agent.memory) > config["warmup_steps"]:
-                agent.learn(config["batch_size"])
-                nn.utils.clip_grad_norm_(agent.q_network.parameters(), max_norm=config["grad_clip_norm"])
+    if ep % 50 == 0:
+        print(f"Ep {ep} | Reward {total:.2f} | BestDist {best:.3f} | Eps {epsilon:.2f}")
 
-            if done or truncated:
-                break
+torch.save(agent.q.state_dict(), "artifacts/dqn_model.pth")
 
-        if episode % config["target_update_freq"] == 0:
-            agent.update_target_network()
-
-        total_rewards.append(total_reward)
-        reward_window.append(total_reward)
-        avg_reward = np.mean(reward_window)
-        moving_avg_rewards.append(avg_reward)
-        eps_history.append(epsilon)
-
-        if total_reward > best_reward:
-            best_reward = total_reward
-            torch.save(agent.q_network.state_dict(), 'best_model.pth')
-
-        if episode % 100 == 0:
-            logger.info(f"Episode {episode}: Total Reward = {total_reward:.2f}, "
-                        f"Avg Reward = {avg_reward:.2f}, Epsilon = {epsilon:.3f}, Difficulty = {env.difficulty}")
-
-    df = pd.DataFrame({
-        'episode': np.arange(1, config["num_episodes"] + 1),
-        'total_reward': total_rewards,
-        'avg_reward': moving_avg_rewards,
-        'epsilon': eps_history
-    })
-    df.to_csv('training_log.csv', index=False)
-
-if __name__ == "__main__":
-    train()

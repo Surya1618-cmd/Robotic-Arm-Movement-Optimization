@@ -1,3 +1,0 @@
-[console_scripts]
-evaluate = src.evaluate:main
-train = src.train:train

@@ -1,177 +1,125 @@
-# --- environment.py (Updated for Curriculum Learning) ---
 
 import numpy as np
-import gymnasium as gym
-from gymnasium import spaces
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+import gym
+from gym import spaces
+
 
 class ThreeJointArmEnv(gym.Env):
-    metadata = {"render_modes": ["human"], "render_fps": 30}
-
-    def __init__(self, render_mode=None):
+    def __init__(self):
         super().__init__()
-        self.render_mode = render_mode
 
-        self.L1 = 0.5
-        self.L2 = 1.0
-        self.L3 = 1.0
+        # Arm lengths
+        self.L1 = 0.8
+        self.L2 = 0.8
+        self.L3 = 0.6
 
-        self.joint_limits = [(-np.pi, np.pi), (-np.pi / 2, np.pi / 2), (-np.pi / 2, np.pi / 2)]
-        self.action_space = spaces.Discrete(6)
+        self.MAX_REACH = self.L1 + self.L2 + self.L3
 
-        low_angles = np.array([lim[0] for lim in self.joint_limits], dtype=np.float32)
-        high_angles = np.array([lim[1] for lim in self.joint_limits], dtype=np.float32)
-        low_target = np.array([-2.5, -2.5, 0.0], dtype=np.float32)
-        high_target = np.array([2.5, 2.5, 3.0], dtype=np.float32)
+        self.max_angle = np.pi
 
-        self.observation_space = spaces.Box(
-            low=np.concatenate([low_angles, low_target]),
-            high=np.concatenate([high_angles, high_target]),
-            dtype=np.float32
-        )
+        # 7 actions (6 movements + NO-OP)
+        self.action_space = spaces.Discrete(7)
 
-        self.target_threshold = 0.1
-        self.target_bonus = 10.0
-        self.max_steps = 200
+        high = np.array([self.max_angle]*3 + [2.5, 2.5, 2.5])
+        self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
-        self.joint_angles = np.zeros(3, dtype=np.float32)
-        self.target = np.zeros(3, dtype=np.float32)
-        self.current_step = 0
-
-        self.obstacles = [np.array([1.0, -1.0, 0.5]), np.array([-1.0, 1.0, 0.5])]
-
-        # === Curriculum Setup ===
-        self.curriculum = True
-        self.difficulty = "easy"  # Will be updated externally
-
-        if self.render_mode == "human":
-            self._init_render()
-
-    def _init_render(self):
-        plt.ion()
-        self.fig = plt.figure()
-        self.ax = self.fig.add_subplot(111, projection='3d')
-        self.ax.set_xlim([-3, 3])
-        self.ax.set_ylim([-3, 3])
-        self.ax.set_zlim([0, 3])
-        self.ax.set_xlabel("X")
-        self.ax.set_ylabel("Y")
-        self.ax.set_zlabel("Z")
+        self.prev_action = None
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.current_step = 0
 
-        if self.curriculum:
-            if self.difficulty == "easy":
-                r = self.np_random.uniform(0.5, 1.0)
-            elif self.difficulty == "medium":
-                r = self.np_random.uniform(1.0, 2.0)
-            else:  # hard
-                r = self.np_random.uniform(2.0, 2.5)
-        else:
-            r = self.np_random.uniform(1.5, 2.5)
+        self.joint_angles = np.zeros(3)
+        self.prev_action = None
 
-        vec = self.np_random.standard_normal(3)
-        vec /= np.linalg.norm(vec)
-        self.target = vec * r
-        self.target[2] = np.abs(self.target[2])
+        # 🎯 Sample only REACHABLE targets
+        while True:
+            target = np.array([
+                np.random.uniform(-1.5, 1.5),
+                np.random.uniform(-1.5, 1.5),
+                np.random.uniform(0.1, 1.8),
+            ])
+            if np.linalg.norm(target) <= self.MAX_REACH:
+                break
 
-        self.joint_angles = np.zeros(3, dtype=np.float32)
-        obs = np.concatenate([self.joint_angles, self.target]).astype(np.float32)
-        info = {"distance": np.linalg.norm(self._end_effector_pos() - self.target)}
-        return obs, info
+        self.target = target
+        return self._get_obs(), {}
 
     def step(self, action):
-        delta = 0.1
-        if action == 0: self.joint_angles[0] += delta
-        elif action == 1: self.joint_angles[0] -= delta
-        elif action == 2: self.joint_angles[1] += delta
-        elif action == 3: self.joint_angles[1] -= delta
-        elif action == 4: self.joint_angles[2] += delta
-        elif action == 5: self.joint_angles[2] -= delta
+        reward = 0.0
 
-        for i, (low, high) in enumerate(self.joint_limits):
-            self.joint_angles[i] = np.clip(self.joint_angles[i], low, high)
+        # Prevent freezing
+        if self.prev_action is not None and action == self.prev_action:
+            reward -= 0.05
+        self.prev_action = action
 
-        ee_pos = self._end_effector_pos()
-        distance = np.linalg.norm(ee_pos - self.target)
-        reward = -distance
-        terminated = distance < self.target_threshold
-        if terminated:
-            reward += self.target_bonus
+        delta = 0.05
 
-        self.current_step += 1
-        truncated = self.current_step >= self.max_steps
+        if action == 0:
+            self.joint_angles[0] += delta
+        elif action == 1:
+            self.joint_angles[0] -= delta
+        elif action == 2:
+            self.joint_angles[1] += delta
+        elif action == 3:
+            self.joint_angles[1] -= delta
+        elif action == 4:
+            self.joint_angles[2] += delta
+        elif action == 5:
+            self.joint_angles[2] -= delta
+        elif action == 6:
+            pass  # NO-OP
 
-        obs = np.concatenate([self.joint_angles, self.target]).astype(np.float32)
-        info = {
-            "distance": distance,
-            "end_effector_pos": ee_pos,
-            "target": self.target
-        }
+        self.joint_angles = np.clip(
+            self.joint_angles, -self.max_angle, self.max_angle
+        )
 
-        if self.render_mode == "human":
-            self.render()
+        ee = self._end_effector()
+        distance = np.linalg.norm(ee - self.target)
 
-        return obs, reward, terminated, truncated, info
+        reward -= distance
 
-    def render(self):
-        self.ax.clear()
-        self.ax.set_xlim([-3, 3])
-        self.ax.set_ylim([-3, 3])
-        self.ax.set_zlim([0, 3])
-        self.ax.set_xlabel("X")
-        self.ax.set_ylabel("Y")
-        self.ax.set_zlabel("Z")
+        done = distance < 0.05
+        truncated = False
 
-        joint1 = np.array([0, 0, self.L1])
-        joint2 = joint1 + self.L2 * np.array([
-            np.cos(self.joint_angles[1]) * np.cos(self.joint_angles[0]),
-            np.cos(self.joint_angles[1]) * np.sin(self.joint_angles[0]),
-            np.sin(self.joint_angles[1])
-        ])
-        ee = joint2 + self.L3 * np.array([
-            np.cos(self.joint_angles[1] + self.joint_angles[2]) * np.cos(self.joint_angles[0]),
-            np.cos(self.joint_angles[1] + self.joint_angles[2]) * np.sin(self.joint_angles[0]),
-            np.sin(self.joint_angles[1] + self.joint_angles[2])
-        ])
-        arm_x = [0, joint1[0], joint2[0], ee[0]]
-        arm_y = [0, joint1[1], joint2[1], ee[1]]
-        arm_z = [0, joint1[2], joint2[2], ee[2]]
+        info = {"distance": distance}
+        return self._get_obs(), reward, done, truncated, info
 
-        self.ax.plot(arm_x, arm_y, arm_z, 'o-', color='blue', label='Arm')
-        self.ax.scatter(*self.target, c='red', s=100, label='Target')
+    def _get_obs(self):
+        return np.concatenate([self.joint_angles, self.target]).astype(np.float32)
 
-        for obs in self.obstacles:
-            u, v = np.mgrid[0:2*np.pi:20j, 0:np.pi:10j]
-            x = 0.2 * np.cos(u) * np.sin(v) + obs[0]
-            y = 0.2 * np.sin(u) * np.sin(v) + obs[1]
-            z = 0.2 * np.cos(v) + obs[2]
-            self.ax.plot_surface(x, y, z, color='gray', alpha=0.4)
-
-        self.ax.legend()
-        plt.draw()
-        plt.pause(0.001)
-
-    def _end_effector_pos(self):
+    def _end_effector(self):
         a1, a2, a3 = self.joint_angles
-        x = (self.L2 * np.cos(a2) + self.L3 * np.cos(a2 + a3)) * np.cos(a1)
-        y = (self.L2 * np.cos(a2) + self.L3 * np.cos(a2 + a3)) * np.sin(a1)
-        z = self.L1 + self.L2 * np.sin(a2) + self.L3 * np.sin(a2 + a3)
-        return np.array([x, y, z], dtype=np.float32)
 
+        p2 = np.array([
+            self.L2*np.cos(a2)*np.cos(a1),
+            self.L2*np.cos(a2)*np.sin(a1),
+            self.L1 + self.L2*np.sin(a2)
+        ])
 
-if __name__ == "__main__":
-    env = ThreeJointArmEnv(render_mode="human")
-    obs, _ = env.reset()
+        p3 = np.array([
+            p2[0] + self.L3*np.cos(a2+a3)*np.cos(a1),
+            p2[1] + self.L3*np.cos(a2+a3)*np.sin(a1),
+            p2[2] + self.L3*np.sin(a2+a3)
+        ])
 
-    for _ in range(50):
-        action = env.action_space.sample()
-        obs, reward, terminated, truncated, info = env.step(action)
-        if terminated or truncated:
-            break
+        return p3
 
-    env.render()
-    input("Press Enter to close...")
+    def get_joint_positions(self):
+        a1, a2, a3 = self.joint_angles
+
+        p0 = np.array([0, 0, 0])
+        p1 = np.array([0, 0, self.L1])
+
+        p2 = np.array([
+            self.L2*np.cos(a2)*np.cos(a1),
+            self.L2*np.cos(a2)*np.sin(a1),
+            self.L1 + self.L2*np.sin(a2)
+        ])
+
+        p3 = np.array([
+            p2[0] + self.L3*np.cos(a2+a3)*np.cos(a1),
+            p2[1] + self.L3*np.cos(a2+a3)*np.sin(a1),
+            p2[2] + self.L3*np.sin(a2+a3)
+        ])
+
+        return np.vstack([p0, p1, p2, p3])

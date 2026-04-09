@@ -1,0 +1,4 @@
+max_delta: 0.04
+joint_bins: 9
+action_bins: 7
+target_threshold: 0.15
