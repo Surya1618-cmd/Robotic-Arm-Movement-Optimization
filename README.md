@@ -18,7 +18,7 @@ This project aims to use Reinforcement Learning to:
 
 ---
 
-## Features
+# 🚀 Features
 - Q-Learning based optimization
 - Reward-driven learning mechanism
 - Robotic arm movement simulation
