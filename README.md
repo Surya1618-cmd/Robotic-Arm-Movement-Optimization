@@ -106,6 +106,8 @@ pip install -r requirements.txt
 python app.py
 ```
 
+## Demo  link:
+https://youtu.be/BA9MR5Sq6wk
 ---
 
 ## Author
