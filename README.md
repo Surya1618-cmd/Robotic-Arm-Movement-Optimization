@@ -70,7 +70,7 @@ Train the agent to learn the optimal sequence of actions for efficient robotic a
 ## Screenshots
 
 ### Training Visualization
-![Training Graph](assets/Screenshot 2026-05-20 164056.png)
+![Training Graph](assets/Screenshot2026-05-20164056.png)
 
 ### Robot Arm Simulation
 ![Robot Simulation](assets/robot-simulation.png)
