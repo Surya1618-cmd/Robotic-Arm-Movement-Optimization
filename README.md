@@ -81,7 +81,6 @@ Train the agent to learn the optimal sequence of actions for efficient robotic a
 ---
 
 ## Future Improvements
-- Deep Q-Learning implementation
 - Real-time robotic arm integration
 - Multi-agent reinforcement learning
 - Advanced motion planning
